@@ -1,0 +1,842 @@
+import React, { useEffect, useState } from "react";
+import {
+  collection,
+  onSnapshot,
+  updateDoc,
+  doc,
+  query,
+  orderBy,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "./firebase";
+
+/**
+ * AdminPanel - dashboard with Student Requests, Leaderboard, Set Questions
+ */
+const AdminPanel = ({ onLogout }) => {
+  const [students, setStudents] = useState([]);
+  const [submissions, setSubmissions] = useState([]);
+  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [loadingSubs, setLoadingSubs] = useState(true);
+  const [error, setError] = useState("");
+  const [activePage, setActivePage] = useState("studentRequests"); // default page
+
+  // ===== Set Questions State =====
+  const [questions, setQuestions] = useState([
+    {
+      title: "",
+      description: "",
+      openTestCase: { input: "", output: "" },
+      hiddenTestCases: [
+        { input: "", output: "" },
+        { input: "", output: "" },
+      ],
+    },
+    {
+      title: "",
+      description: "",
+      openTestCase: { input: "", output: "" },
+      hiddenTestCases: [
+        { input: "", output: "" },
+        { input: "", output: "" },
+      ],
+    },
+  ]);
+  const [saving, setSaving] = useState(false);
+
+  // === Fetch students (approval) ===
+  useEffect(() => {
+    if (activePage !== "studentRequests") return;
+    setLoadingStudents(true);
+    const q = query(collection(db, "students"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snapshot) => {
+        setStudents(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoadingStudents(false);
+    }, (err) => {
+        console.error("Snapshot error:", err);
+        setError("Failed to load students.");
+        setLoadingStudents(false);
+    });
+    return () => unsub();
+  }, [activePage]);
+
+  // === Fetch leaderboard (examSubmissions) ===
+  useEffect(() => {
+    if (activePage !== "leaderboard") return;
+    setLoadingSubs(true);
+    const q = query(collection(db, "examSubmissions"), orderBy("submittedAt", "desc"));
+    const unsub = onSnapshot(q, (snapshot) => {
+        setSubmissions(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoadingSubs(false);
+    }, (err) => {
+        console.error("Snapshot error:", err);
+        setError("Failed to load submissions.");
+        setLoadingSubs(false);
+    });
+    return () => unsub();
+  }, [activePage]);
+
+  const handleStatusChange = async (id, newStatus) => {
+    try {
+      const studentRef = doc(db, "students", id);
+      await updateDoc(studentRef, { status: newStatus });
+    } catch (err) {
+      console.error("Failed to update status:", err);
+      alert("Failed to update status. See console.");
+    }
+  };
+
+  // ===== Save Questions to Firebase =====
+  const handleSaveQuestions = async () => {
+    for (let q of questions) {
+        if (!q.title.trim() || !q.description.trim() || !q.openTestCase.input.trim() || !q.openTestCase.output.trim()) {
+            alert("Please fill out Title, Description, and Open Test Case for all questions.");
+            return;
+        }
+    }
+
+    setSaving(true);
+    try {
+      for (let q of questions) {
+        await addDoc(collection(db, "questions"), {
+          ...q,
+          createdAt: serverTimestamp(),
+        });
+      }
+      alert("Questions saved successfully!");
+      setSaving(false);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save questions. See console.");
+      setSaving(false);
+    }
+  };
+
+  // ===== Dashboard boxes style =====
+  const cardStyle = {
+    padding: "30px",
+    borderRadius: "16px",
+    color: "white",
+    fontWeight: "bold",
+    fontSize: "1.2rem",
+    textAlign: "center",
+    cursor: "pointer",
+    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+    boxShadow: "0 6px 20px rgba(0,0,0,0.1)",
+  };
+
+  const hoverEffect = (e, enter) => {
+    e.currentTarget.style.transform = enter ? "translateY(-5px)" : "translateY(0)";
+    e.currentTarget.style.boxShadow = enter
+      ? "0 10px 25px rgba(0,0,0,0.15)"
+      : "0 6px 20px rgba(0,0,0,0.1)";
+  };
+
+  return (
+    <div style={{ fontFamily: "Arial, sans-serif", padding: 20, maxWidth: '1100px', margin: 'auto' }}>
+      <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px'}}>
+        <h1 style={{ color: "#1a237e" }}>Admin Dashboard</h1>
+        {onLogout && <button onClick={onLogout} style={{padding: '8px 16px', border: 'none', background: '#666', color: 'white', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'}}>Logout</button>}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "30px", marginBottom: "40px" }}>
+        <div onClick={() => setActivePage("studentRequests")} style={{ ...cardStyle, background: activePage === "studentRequests" ? "linear-gradient(135deg, #1976d2, #42a5f5)" : "linear-gradient(135deg, #2196f3, #21cbf3)" }} onMouseOver={(e) => hoverEffect(e, true)} onMouseOut={(e) => hoverEffect(e, false)}>
+          Student Requests
+        </div>
+        <div onClick={() => setActivePage("leaderboard")} style={{ ...cardStyle, background: activePage === "leaderboard" ? "linear-gradient(135deg, #d81b60, #f06292)" : "linear-gradient(135deg, #f06292, #f48fb1)" }} onMouseOver={(e) => hoverEffect(e, true)} onMouseOut={(e) => hoverEffect(e, false)}>
+          Leaderboard
+        </div>
+        <div onClick={() => setActivePage("setQuestions")} style={{ ...cardStyle, background: activePage === "setQuestions" ? "linear-gradient(135deg, #6a1b9a, #ab47bc)" : "linear-gradient(135deg, #7b1fa2, #ba68c8)" }} onMouseOver={(e) => hoverEffect(e, true)} onMouseOut={(e) => hoverEffect(e, false)}>
+          Set Questions
+        </div>
+      </div>
+
+      {error && <p style={{ color: "red", textAlign: 'center' }}>{error}</p>}
+
+      {activePage === "studentRequests" && (
+        <>
+          <h2>Student Approvals</h2>
+          {loadingStudents ? <p>Loading students...</p> : students.length === 0 ? <p>No new student requests.</p> : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {students.map((student) => (
+                <div key={student.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 16, background: "#fff", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.06)", border: "1px solid #eef2f7" }}>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 700 }}>{student.name}</p>
+                    <p style={{ margin: "6px 0 0", color: "#555" }}>Reg No: {student.registerNumber}</p>
+                    <p style={{ margin: "6px 0 0" }}>Status: <span style={{ color: student.status === "approved" ? "green" : student.status === "rejected" ? "red" : "orange", fontWeight: 700 }}>{student.status || "pending"}</span></p>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => handleStatusChange(student.id, "approved")} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#2e7d32", color: "#fff", cursor: "pointer", fontWeight: 700 }}>Approve</button>
+                    <button onClick={() => { if (window.confirm("Set status to pending?")) handleStatusChange(student.id, "pending"); }} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#f0ad4e", color: "#111", cursor: "pointer", fontWeight: 700 }}>Pending</button>
+                    <button onClick={() => { if (window.confirm("Reject this student?")) handleStatusChange(student.id, "rejected"); }} style={{ padding: "8px 12px", borderRadius: 8, border: "none", background: "#c62828", color: "#fff", cursor: "pointer", fontWeight: 700 }}>Reject</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {activePage === "leaderboard" && (
+         <>
+          <h2>Leaderboard</h2>
+          {loadingSubs ? <p>Loading submissions...</p> : submissions.length === 0 ? <p>No submissions yet.</p> : (
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+              {submissions.map((sub) => (
+                <div key={sub.id} style={{ padding: 16, background: "#fce4ec", borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.06)", border: "1px solid #f8bbd0" }}>
+                  <p style={{ margin: 0, fontWeight: 700, color: '#ad1457' }}>{sub.studentName}</p>
+                  <p style={{ margin: "4px 0 0", color: "#555" }}>Reg No: {sub.studentRegNo}</p>
+                  <p style={{ margin: "4px 0 0" }}><b>Marks:</b> {sub.studentMark}</p>
+                  <p style={{ margin: "4px 0 0" }}><b>Time Taken:</b> {sub.studentTimeTaken}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {activePage === "setQuestions" && (
+        <>
+          <h2 style={{ textAlign: "center", marginBottom: 20 }}>Set Exam Questions</h2>
+          {questions.map((q, idx) => (
+            <div key={idx} style={{ background: "#f3e5f5", padding: 20, borderRadius: 12, marginBottom: 20, boxShadow: "0 4px 16px rgba(0,0,0,0.05)" }}>
+              <h3>Question {idx + 1}</h3>
+              <label>Title:</label>
+              <input type="text" value={q.title} onChange={(e) => { const newQ = [...questions]; newQ[idx].title = e.target.value; setQuestions(newQ); }} placeholder="e.g., Sum of two numbers" style={{ width: "100%", padding: 8, marginBottom: 10, borderRadius: 6, border: '1px solid #ccc' }}/>
+              <label>Description:</label>
+              <textarea value={q.description} onChange={(e) => { const newQ = [...questions]; newQ[idx].description = e.target.value; setQuestions(newQ); }} placeholder="Enter question description" rows={3} style={{ width: "100%", padding: 8, marginBottom: 10, borderRadius: 6, border: '1px solid #ccc' }}/>
+              <h4>Open Test Case</h4>
+              <input type="text" value={q.openTestCase.input} onChange={(e) => { const newQ = [...questions]; newQ[idx].openTestCase.input = e.target.value; setQuestions(newQ); }} placeholder="Input (e.g., 2 3)" style={{ width: "100%", padding: 8, marginBottom: 6, borderRadius: 6, border: '1px solid #ccc' }}/>
+              <input type="text" value={q.openTestCase.output} onChange={(e) => { const newQ = [...questions]; newQ[idx].openTestCase.output = e.target.value; setQuestions(newQ); }} placeholder="Expected Output (e.g., 5)" style={{ width: "100%", padding: 8, marginBottom: 10, borderRadius: 6, border: '1px solid #ccc' }}/>
+              <h4>Hidden Test Cases</h4>
+              {q.hiddenTestCases.map((htc, hIdx) => (
+                <div key={hIdx} style={{ marginBottom: 8, borderLeft: '3px solid #ab47bc', paddingLeft: '10px' }}>
+                  <p style={{margin: '0 0 4px 0', fontWeight: '500'}}>Hidden Case {hIdx+1}</p>
+                  <input
+                    type="text"
+                    value={htc.input}
+                    onChange={(e) => {
+                      const newQ = [...questions];
+                      newQ[idx].hiddenTestCases[hIdx].input = e.target.value;
+                      setQuestions(newQ);
+                    }}
+                    // ✅ FIX: Use backticks `` for template literals
+                    placeholder={`Hidden Test Case ${hIdx + 1} Input`}
+                    style={{ width: "100%", padding: 8, marginBottom: 4, borderRadius: 6, border: '1px solid #ccc' }}
+                  />
+                  <input
+                    type="text"
+                    value={htc.output}
+                    onChange={(e) => {
+                      const newQ = [...questions];
+                      newQ[idx].hiddenTestCases[hIdx].output = e.target.value;
+                      setQuestions(newQ);
+                    }}
+                    // ✅ FIX: Use backticks `` for template literals
+                    placeholder={`Hidden Test Case ${hIdx + 1} Output`}
+                    style={{ width: "100%", padding: 8, marginBottom: 6, borderRadius: 6, border: '1px solid #ccc' }}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          <button onClick={handleSaveQuestions} disabled={saving} style={{ padding: "12px 20px", borderRadius: 8, background: saving ? '#d1c4e9' : "#6a1b9a", color: "#fff", border: "none", fontWeight: 700, cursor: saving ? "default" : "pointer", width: '100%', fontSize: '1rem' }}>
+            {saving ? "Saving..." : "Save All Questions"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default AdminPanel;
+
+
+// src/App.js
+
+import React, { useState, useEffect } from "react";
+import Auth from "./Auth";
+import AdminPanel from "./AdminPanel";
+import ExamCompiler from './ExamCompiler';
+import { db } from "./firebase";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
+
+// A simple loading component
+const LoadingIndicator = () => (
+  <div style={{ textAlign: "center", padding: 50, fontFamily: "Arial, sans-serif" }}>
+    <h2>Loading...</h2>
+  </div>
+);
+
+const App = () => {
+  const [userType, setUserType] = useState(null);
+  const [studentName, setStudentName] = useState("");
+  const [registerNumber, setRegisterNumber] = useState("");
+  const [studentStatus, setStudentStatus] = useState(null);
+  const [isLoading, setIsLoading] = useState(true); // <-- Improvement 2: New loading state
+
+  const handleLogin = (type, name = "", regNo = "") => {
+    setUserType(type);
+    if (type === "student") {
+      setStudentName(name);
+      setRegisterNumber(regNo);
+      setIsLoading(true); // Start loading when student logs in
+    }
+  };
+
+  const handleLogout = () => {
+    setUserType(null);
+    setStudentName("");
+    setRegisterNumber("");
+    setStudentStatus(null);
+  };
+
+  useEffect(() => {
+    if (userType === "student" && studentName && registerNumber) {
+      const q = query(
+        collection(db, "students"),
+        where("name", "==", studentName),
+        where("registerNumber", "==", registerNumber)
+      );
+
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        if (!snapshot.empty) {
+          const data = snapshot.docs[0].data();
+          setStudentStatus(data.status || "pending");
+        } else {
+          setStudentStatus("pending");
+        }
+        setIsLoading(false); // <-- Improvement 2: Stop loading once status is fetched
+      });
+
+      return () => unsubscribe();
+    }
+  }, [userType, studentName, registerNumber]);
+
+  if (userType === "admin") {
+    return <AdminPanel onLogout={handleLogout} />;
+  }
+
+  if (userType === "student") {
+    // <-- Improvement 2: Show loading indicator while checking status
+    if (isLoading) {
+        return <LoadingIndicator />;
+    }
+
+    // <-- Improvement 1: Streamlined logic with if/else if
+    if (studentStatus === "approved") {
+      return <ExamCompiler studentName={studentName} registerNumber={registerNumber} />;
+    } else if (studentStatus === "rejected") {
+      return (
+        <div style={{ textAlign: "center", padding: 50, fontFamily: "Arial, sans-serif", color: "red" }}>
+          <h2>Access Denied. Your request was rejected by the admin.</h2>
+        </div>
+      );
+    } else { // This handles 'pending' or any other status
+      return (
+        <div style={{ textAlign: "center", padding: 50, fontFamily: "Arial, sans-serif" }}>
+          <h2>Please wait for admin approval...</h2>
+          <p style={{ marginTop: 12 }}>
+            {studentName && <span><b>Name:</b> {studentName} &nbsp;</span>}
+            {registerNumber && <span><b>Reg No:</b> {registerNumber}</span>}
+          </p>
+        </div>
+      );
+    }
+  }
+
+  return <Auth onLogin={handleLogin} />;
+};
+
+export default App;
+
+
+
+
+
+// src/Auth.js
+import React, { useState } from "react";
+import { db } from "./firebase";
+import { collection, addDoc, query, where, getDocs } from "firebase/firestore";
+
+const Auth = ({ onLogin }) => {
+  const [loginType, setLoginType] = useState("student"); // "student" or "admin"
+
+  // admin fields
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
+  // student fields
+  const [studentName, setStudentName] = useState("");
+  const [registerNumber, setRegisterNumber] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // admin creds
+  const ADMIN_USER = "admin@smvec.ac.in";
+  const ADMIN_PASS = "admin@123";
+
+  const handleAdminSubmit = (e) => {
+    e.preventDefault();
+    if (username === ADMIN_USER && password === ADMIN_PASS) {
+      onLogin("admin");
+    } else {
+      alert("Invalid admin credentials");
+    }
+  };
+
+  const handleStudentSubmit = async (e) => {
+    e.preventDefault();
+    if (!studentName.trim() || !registerNumber.trim()) {
+      alert("Fill name and register number");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const q = query(
+        collection(db, "students"),
+        where("name", "==", studentName.trim()),
+        where("registerNumber", "==", registerNumber.trim())
+      );
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        await addDoc(collection(db, "students"), {
+          name: studentName.trim(),
+          registerNumber: registerNumber.trim(),
+          status: "pending",
+          createdAt: new Date(),
+        });
+        alert("Submitted — please wait for admin approval.");
+      } else {
+        alert("Record found — checking status.");
+      }
+
+      // Notify parent (App) to enter student flow and check status
+      onLogin("student", studentName.trim(), registerNumber.trim());
+    } catch (err) {
+      console.error("Error submitting student:", err);
+      alert("Failed to submit. Check console.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // --- Styles including the logo area (kept inline per your request) ---
+  const styles = {
+    outer: {
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "flex-start",
+      minHeight: "100vh",
+      background: "#f7fafc",
+      paddingTop: 40,
+      fontFamily: "Arial, sans-serif",
+    },
+    card: {
+      width: 420,
+      background: "#fff",
+      padding: 22,
+      borderRadius: 10,
+      boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+    },
+    topLogo: { display: "flex", justifyContent: "center", marginBottom: 12 },
+    middleLogo: { height: 80, objectFit: "contain" },
+    smallLogosRow: { display: "flex", justifyContent: "center", gap: 12, marginBottom: 16 },
+    smallLogo: { width: 48, height: 48, objectFit: "contain" },
+    toggleRow: { display: "flex", justifyContent: "center", marginBottom: 12 },
+    toggleBtn: (active) => ({
+      padding: "8px 14px",
+      borderRadius: 6,
+      border: "none",
+      marginRight: 8,
+      background: active ? "#1a73e8" : "#e6eefc",
+      color: active ? "#fff" : "#1a73e8",
+      cursor: "pointer",
+      fontWeight: 600,
+    }),
+    formGroupLabel: { fontSize: 13, color: "#444", marginTop: 6 },
+    input: { padding: 10, borderRadius: 6, border: "1px solid #ddd", outline: "none" },
+    submitBtn: (busy) => ({
+      marginTop: 8,
+      padding: 10,
+      borderRadius: 6,
+      border: "none",
+      background: busy ? "#9bb7ff" : "#0066ff",
+      color: "#fff",
+      fontWeight: 700,
+      cursor: busy ? "default" : "pointer",
+    }),
+  };
+
+  return (
+    <div style={styles.outer}>
+      <div style={styles.card}>
+        {/* ====== Logo block ====== */}
+        <div style={styles.topLogo}>
+          {/* main middle logo */}
+          <img src="/logo1.png" alt="Main Logo" style={styles.middleLogo} />
+        </div>
+
+        <div style={styles.smallLogosRow}>
+          <img src="/logo2.png" alt="Logo 2" style={styles.smallLogo} />
+          <img src="/logo3.png" alt="Logo 3" style={styles.smallLogo} />
+          {/* add more small logos if you want */}
+        </div>
+
+        {/* ====== Toggle (Student / Admin) ====== */}
+        <div style={styles.toggleRow}>
+          <button onClick={() => setLoginType("student")} style={styles.toggleBtn(loginType === "student")}>
+            STUDENT
+          </button>
+          <button onClick={() => setLoginType("admin")} style={styles.toggleBtn(loginType === "admin")}>
+            ADMIN
+          </button>
+        </div>
+
+        {/* ====== Form area ====== */}
+        {loginType === "admin" ? (
+          <form onSubmit={handleAdminSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <h2 style={{ textAlign: "center", margin: "6px 0 8px" }}>Admin Login</h2>
+
+            <label style={styles.formGroupLabel}>Username</label>
+            <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="admin@smvec.ac.in" style={styles.input} required />
+
+            <label style={styles.formGroupLabel}>Password</label>
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="admin password" style={styles.input} required />
+
+            <button type="submit" style={{ ...styles.submitBtn(false) }}>
+              Sign In
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleStudentSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <h2 style={{ textAlign: "center", margin: "6px 0 6px" }}>Student Sign-up / Check</h2>
+
+            <label style={styles.formGroupLabel}>Student Name</label>
+            <input value={studentName} onChange={(e) => setStudentName(e.target.value)} placeholder="Student Name" style={styles.input} required />
+
+            <label style={styles.formGroupLabel}>Register Number</label>
+            <input value={registerNumber} onChange={(e) => setRegisterNumber(e.target.value)} placeholder="Register Number" style={styles.input} required />
+
+            <button type="submit" disabled={busy} style={styles.submitBtn(busy)}>
+              {busy ? "Submitting..." : "Submit / Check Status"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Auth;
+
+
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { db } from "./firebase";
+import { collection, getDocs, query, orderBy, addDoc } from "firebase/firestore";
+import axios from "axios";
+
+// --- Default Code Templates ---
+const defaultTemplates = {
+  c: `#include <stdio.h>\n\nint main() {\n    // Your code here\n    return 0;\n}`,
+  python: `def main():\n    # Your code here\n    pass\n\nif __name__ == "__main__":\n    main()`,
+  java: `public class Main {\n    public static void main(String[] args) {\n        // Your code here\n    }\n}`,
+};
+
+const ExamCompiler = ({ studentName, registerNumber }) => {
+  // --- State Management ---
+  const [examQuestions, setExamQuestions] = useState([]);
+  const [isExamLoading, setIsExamLoading] = useState(true);
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [language, setLanguage] = useState("c");
+  const [code, setCode] = useState(defaultTemplates.c);
+  const [output, setOutput] = useState("Output will be displayed here...");
+  const [isLoading, setIsLoading] = useState(false);
+  const [totalScore, setTotalScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30 * 60);
+  
+  const [allCodes, setAllCodes] = useState({});
+  const [submittedQuestions, setSubmittedQuestions] = useState({});
+  const [viewMode, setViewMode] = useState("compiler");
+
+  const stateRef = useRef();
+  stateRef.current = {
+      viewMode, timeLeft, examQuestions, allCodes, totalScore, studentName, registerNumber
+  };
+
+  /**
+   * Handles the final submission of the entire exam.
+   * Gathers all data and sends it to the 'examSubmissions' collection in Firestore.
+   */
+  const handleSubmit = useCallback(async () => {
+    const currentState = stateRef.current;
+    if (currentState.viewMode === 'submitted') return;
+    
+    setViewMode('submitted');
+    const timeTaken = 30 * 60 - currentState.timeLeft;
+    const minutes = Math.floor(timeTaken / 60);
+    const seconds = timeTaken % 60;
+
+    // This object stores the code for each question to be saved in Firestore.
+    const formattedCodes = {};
+    currentState.examQuestions.forEach(q => {
+        formattedCodes[`Q: ${q.title}`] = currentState.allCodes[q.id] || "Not Attempted";
+    });
+
+    try {
+      await addDoc(collection(db, "examSubmissions"), {
+        studentName: currentState.studentName,
+        studentRegNo: currentState.registerNumber,
+        studentMark: `${currentState.totalScore.toFixed(1)} out of 20`,
+        studentTimeTaken: `${minutes}m ${seconds}s`,
+        studentCodes: formattedCodes, // The code for each question is saved here
+        submittedAt: new Date(),
+      });
+      setOutput(`Exam Submitted Successfully!\nFinal Score: ${currentState.totalScore.toFixed(1)} / 20`);
+    } catch (error) {
+      console.error("Firebase Submission Error:", error);
+      alert("There was an error submitting your results.");
+    }
+  }, []);
+
+  // --- Effects ---
+
+  // Fetches questions from Firestore when the component first loads.
+  useEffect(() => {
+    const fetchQuestions = async () => {
+      try {
+        const q = query(collection(db, "questions"), orderBy("createdAt"));
+        const snapshot = await getDocs(q);
+        if (snapshot.empty) {
+            setExamQuestions([]);
+        } else {
+            const fetchedQuestions = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    title: data.title,
+                    description: data.description,
+                    open: {
+                        input: data.openTestCase?.input,
+                        expected: data.openTestCase?.output 
+                    },
+                    hidden: Array.isArray(data.hiddenTestCases) ? data.hiddenTestCases.map(tc => ({
+                        input: tc?.input,
+                        expected: tc?.output
+                    })) : [],
+                };
+            });
+            setExamQuestions(fetchedQuestions);
+        }
+      } catch (error) {
+        console.error("Failed to fetch questions:", error);
+      } finally {
+        setIsExamLoading(false);
+      }
+    };
+    fetchQuestions();
+  }, []); 
+  
+  // Updates the code in the editor when the user switches questions or languages.
+  useEffect(() => {
+    if (examQuestions.length > 0) {
+      const currentQuestionId = examQuestions[currentIdx].id;
+      setCode(allCodes[currentQuestionId] || defaultTemplates[language]);
+    }
+  }, [currentIdx, language, examQuestions, allCodes]);
+
+  // Manages the exam timer.
+  useEffect(() => {
+    if (viewMode !== 'compiler' || timeLeft <= 0) {
+        if (timeLeft <= 0) handleSubmit();
+        return;
+    };
+    const timer = setInterval(() => setTimeLeft((prev) => prev - 1), 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft, viewMode, handleSubmit]);
+
+  /**
+   * FEATURE: Tab Switching Detection
+   * If the user switches to another tab, this automatically calls handleSubmit.
+   */
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden || stateRef.current.viewMode !== 'compiler') return;
+      alert(`Violation Detected: Tab switching is not allowed. Your exam will now be submitted automatically.`);
+      handleSubmit();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleSubmit]);
+
+  // Saves the code as the student types.
+  const handleCodeChange = (newCode) => {
+    const currentQuestionId = examQuestions[currentIdx].id;
+    setCode(newCode);
+    setAllCodes(prev => ({ ...prev, [currentQuestionId]: newCode }));
+  };
+
+  // Sends code to the backend for execution.
+  const executeCode = async (stdin) => {
+    const languageMap = { c: { lang: "c", versionIndex: "4" }, python: { lang: "python3", versionIndex: "4" }, java: { lang: "java", versionIndex: "4" } };
+    try {
+      const { data } = await axios.post("http://localhost:5000/execute", { script: code, language: languageMap[language].lang, versionIndex: languageMap[language].versionIndex, stdin });
+      return data.output ? data.output.trim() : "Execution failed or produced no output.";
+    } catch (error) {
+      console.error("Execution API error:", error);
+      return "Error: Could not connect to the execution server.";
+    }
+  };
+
+  /**
+   * FEATURE: Run Code Button Functionality
+   * This function is called when 'Run Code' is clicked. It uses the hidden test cases
+   * from Firestore to check the code and calculate the score.
+   */
+  const handleRunCode = async () => {
+    setIsLoading(true);
+    const q = examQuestions[currentIdx];
+    let passedCount = 0;
+    setOutput("Running hidden test cases...");
+
+    for (const test of q.hidden) {
+        const actualOutput = await executeCode(test.input);
+        if (actualOutput === test.expected) passedCount++;
+    }
+    const allPassed = passedCount === q.hidden.length;
+    setOutput(`Result: ${allPassed ? "✅ All hidden test cases passed!" : "❌ Some hidden test cases failed."}`);
+    
+    if (allPassed && !submittedQuestions[q.id]) {
+      const marksPerQuestion = 20 / examQuestions.length;
+      setTotalScore(prev => prev + marksPerQuestion);
+    }
+    setIsLoading(false);
+  };
+  
+  /**
+   * FEATURE: Code Submit Button
+   * This locks the code for the current question. The alert confirms to the
+   * user which question's code has been saved.
+   */
+  const handleCodeSubmit = () => {
+    const currentQuestionId = examQuestions[currentIdx].id;
+    setSubmittedQuestions(prev => ({ ...prev, [currentQuestionId]: true }));
+    alert(`Code for "${examQuestions[currentIdx].title}" has been submitted and locked.`);
+    if (Object.keys(submittedQuestions).length + 1 === examQuestions.length) {
+      setViewMode('summary');
+    }
+  };
+
+  // --- Render Logic ---
+
+  if (isExamLoading) {
+    return <div style={{ textAlign: 'center', padding: '50px', fontFamily: 'Arial' }}>Loading Exam Questions...</div>;
+  }
+  
+  if (!examQuestions || examQuestions.length === 0) {
+    return <div style={{ textAlign: 'center', padding: '50px', fontFamily: 'Arial' }}>No exam questions available. Please contact an administrator.</div>;
+  }
+
+  if (viewMode !== 'compiler') {
+    return (
+        <div style={styles.summaryContainer}>
+            <div style={styles.summaryBox}>
+                <h1 style={styles.summaryTitle}>Exam Finished</h1>
+                <p style={styles.summaryScore}>Your Final Score: {totalScore.toFixed(1)} / 20</p>
+                {viewMode === 'summary' ? (
+                    <button onClick={handleSubmit} style={{...styles.actionButton, ...styles.submitButton, width: '100%'}}>Submit Exam</button>
+                ) : (
+                    <p style={styles.summaryScore}>Your results have been submitted.</p>
+                )}
+            </div>
+        </div>
+    );
+  }
+
+  const currentQuestion = examQuestions[currentIdx];
+  const isCurrentQuestionSubmitted = !!submittedQuestions[currentQuestion.id];
+
+  return (
+    <div style={styles.container}>
+      <header style={styles.header}>
+        <h1 style={styles.headerTitle}>Exam System - Compiler</h1>
+        <div style={styles.headerInfo}>
+          <span>Time Left: {Math.floor(timeLeft / 60)}:{('0' + (timeLeft % 60)).slice(-2)}</span>
+          <span style={{ marginLeft: '2rem' }}>Score: {totalScore.toFixed(1)}</span>
+        </div>
+      </header>
+      <div style={styles.body}>
+        <aside style={styles.leftPanel}>
+            <h2 style={styles.questionTitle}>{`Q${currentIdx + 1}: ${currentQuestion.title}`}</h2>
+            <p style={styles.questionDescription}>{currentQuestion.description}</p>
+            <div style={styles.testCaseGroup}>
+                <h3 style={styles.testCaseHeader}>Open Test Case</h3>
+                <div style={styles.testCaseBox}>
+                  <div style={styles.ioLabel}>Input:</div>
+                  <pre style={styles.ioValue}>{currentQuestion.open.input}</pre>
+                  <div style={{...styles.ioLabel, marginTop: '10px'}}>Expected Output:</div>
+                  <pre style={styles.ioValue}>{currentQuestion.open.expected}</pre>
+                </div>
+            </div>
+            <div style={styles.navigation}>
+                <button style={currentIdx === 0 ? styles.navButtonDisabled : styles.navButton} onClick={() => setCurrentIdx(i => Math.max(0, i - 1))} disabled={currentIdx === 0}>← Back</button>
+                <button style={currentIdx === examQuestions.length - 1 ? styles.navButtonDisabled : styles.primaryButton} onClick={() => setCurrentIdx(i => Math.min(examQuestions.length - 1, i + 1))} disabled={currentIdx === examQuestions.length - 1}>Next →</button>
+            </div>
+        </aside>
+        <main style={styles.rightPanel}>
+          <select value={language} onChange={e => setLanguage(e.target.value)} disabled={isCurrentQuestionSubmitted} style={styles.languageSelector}>
+            <option value="c">C</option>
+            <option value="java">Java</option>
+            <option value="python">Python</option>
+          </select>
+          <textarea value={code} onChange={e => handleCodeChange(e.target.value)} disabled={isLoading || isCurrentQuestionSubmitted} style={styles.editor} />
+          <div style={styles.buttonGroup}>
+            <button onClick={handleRunCode} disabled={isLoading || isCurrentQuestionSubmitted} style={{ ...styles.actionButton, ...styles.runButton }}>Run Code</button>
+            <button onClick={handleCodeSubmit} disabled={isLoading || isCurrentQuestionSubmitted} style={{ ...styles.actionButton, ...styles.hiddenButton }}>Code Submit</button>
+          </div>
+          <pre style={styles.outputArea}>{isLoading ? "Executing..." : output}</pre>
+        </main>
+      </div>
+    </div>
+  );
+};
+
+// Styles (no changes)
+const styles = { 
+    container: { display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Arial, sans-serif' }, 
+    header: { background: '#1e293b', color: 'white', padding: '0 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '60px', flexShrink: 0 }, 
+    headerTitle: { fontSize: '1.2rem', fontWeight: '600' }, 
+    headerInfo: { fontSize: '1rem' }, 
+    body: { display: 'flex', flexGrow: 1, overflow: 'hidden' }, 
+    leftPanel: { width: '40%', padding: '1.5rem', background: 'white', borderRight: '1px solid #e2e8f0', overflowY: 'auto', display: 'flex', flexDirection: 'column' }, 
+    questionTitle: { margin: 0, color: '#1e293b' }, 
+    questionDescription: { color: '#475569', fontSize: '0.95rem', lineHeight: 1.5 },
+    testCaseGroup: { marginTop: '1.5rem' }, 
+    testCaseHeader: { fontSize: '1rem', margin: '0 0 0.5rem 0', color: '#475569' }, 
+    testCaseBox: { background: '#f1f5f9', padding: '1rem', borderRadius: '8px' }, 
+    ioLabel: { color: '#64748b', fontSize: '0.9rem', fontWeight: '500' }, 
+    ioValue: { margin: '0.25rem 0 0 0', background: 'white', padding: '0.5rem', borderRadius: '4px', fontFamily: 'monospace', color: '#1e293b' }, 
+    navigation: { marginTop: 'auto', paddingTop: '1.5rem', display: 'flex', justifyContent: 'space-between' }, 
+    navButton: { background: '#e2e8f0', color: '#334155', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }, 
+    navButtonDisabled: { background: '#f1f5f9', color: '#94a3b8', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'not-allowed', fontWeight: '600' }, 
+    primaryButton: { background: '#3b82f6', color: 'white', border: 'none', padding: '0.6rem 1.2rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600' }, 
+    rightPanel: { width: '60%', padding: '1.5rem', display: 'flex', flexDirection: 'column', background: '#f8fafc' }, 
+    languageSelector: { marginBottom: '1rem', padding: '0.5rem', borderRadius: '6px', border: '1px solid #cbd5e1', alignSelf: 'flex-start' }, 
+    editor: { flexGrow: 1, fontFamily: 'monospace', fontSize: '16px', padding: '1rem', border: '1px solid #cbd5e1', borderRadius: '8px', resize: 'none' }, 
+    buttonGroup: { marginTop: '1rem', display: 'flex', gap: '1rem' }, 
+    actionButton: { color: 'white', border: 'none', padding: '0.75rem 1.5rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.9rem' }, 
+    runButton: { background: '#3b82f6' }, 
+    hiddenButton: { background: '#22c55e' }, 
+    submitButton: { background: '#ef4444' }, 
+    outputArea: { flexBasis: '250px', flexShrink: 0, background: '#0f172a', color: '#e2e8f0', padding: '1rem', borderRadius: '8px', marginTop: '1rem', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: 'monospace' },
+    summaryContainer: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f8fafc' },
+    summaryBox: { background: 'white', padding: '3rem', borderRadius: '12px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', textAlign: 'center', width: '400px' },
+    summaryTitle: { margin: '0 0 1rem 0', color: '#1e293b' },
+    summaryScore: { fontSize: '1.2rem', color: '#475569', marginBottom: '2rem' },
+};
+
+export default ExamCompiler;
+
+
