@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { db } from "./firebase";
-// ✅ CHANGE: Import serverTimestamp
+import { db, analytics } from "./firebase"; // Make sure analytics is exported from firebase.js
 import { collection, getDocs, query, orderBy, addDoc, doc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { logEvent } from "firebase/analytics";
 import axios from "axios";
 
 // --- Default Code Templates ---
@@ -47,19 +47,26 @@ const ExamCompiler = ({ studentName, registerNumber, studentId }) => {
         studentMark: `${currentState.totalScore.toFixed(1)} out of 20`,
         studentTimeTaken: `${minutes}m ${seconds}s`,
         studentCodes: formattedCodes,
-        // ✅ CHANGE: Add the server timestamp for sorting the leaderboard
         submittedAt: serverTimestamp(),
       });
       if (currentState.studentId) {
         await updateDoc(doc(db, "students", currentState.studentId), { status: "completed" });
       }
+
+      // ✅ FIX: This line was missing. It uses the 'logEvent' function.
+      logEvent(analytics, 'exam_submission', {
+        student_name: currentState.studentName,
+        register_number: currentState.registerNumber,
+        time_taken_seconds: timeTaken,
+        code_submitted: JSON.stringify(formattedCodes) 
+      });
+
       setOutput(`Exam Submitted Successfully!\nFinal Score: ${currentState.totalScore.toFixed(1)} / 20`);
     } catch (error) {
       alert("There was an error submitting your results.");
     }
   }, []);
 
-  // --- Effects ---
   useEffect(() => {
     const fetchQuestions = async () => {
       try {
@@ -102,7 +109,7 @@ const ExamCompiler = ({ studentName, registerNumber, studentId }) => {
     return () => clearInterval(timer);
   }, [timeLeft, viewMode, handleSubmit]);
 
-  /* TAB-SWITCHING FEATURE DISABLED FOR TESTING
+  
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden || stateRef.current.viewMode !== 'compiler') return;
@@ -112,7 +119,7 @@ const ExamCompiler = ({ studentName, registerNumber, studentId }) => {
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [handleSubmit]);
-  */
+  
 
   const handleCodeChange = (newCode) => {
     const currentQuestionId = examQuestions[currentIdx].id;
@@ -124,7 +131,10 @@ const ExamCompiler = ({ studentName, registerNumber, studentId }) => {
     const languageMap = { c: { lang: "c", versionIndex: "4" }, python: { lang: "python3", versionIndex: "4" }, java: { lang: "java", versionIndex: "4" } };
     try {
       const { data } = await axios.post("http://localhost:5000/execute", { script: code, language: languageMap[language].lang, versionIndex: languageMap[language].versionIndex, stdin });
-      return data.output ? data.output.trim() : "Execution failed or produced no output.";
+      if (data.output != null) {
+        return data.output.trim();
+      }
+      return "Execution failed: No output from server.";
     } catch (error) {
       return "Error: Could not connect to the execution server.";
     }
@@ -281,3 +291,4 @@ const styles = {
 };
 
 export default ExamCompiler;
+

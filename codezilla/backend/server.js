@@ -18,8 +18,8 @@ app.post("/execute", async (req, res) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        clientId: "e463db2adee1eed75d5839b6a3e9430f",   // 👈 JDoodle clientId
-        clientSecret: "3ce3725c3a88ecd385ce9efd2048b0c11658072b9e98f9d7b8943ef3f3f247c7", // 👈 JDoodle clientSecret
+        clientId: "27686bc9ea3a329b1d38d951ae665862",   // 👈 JDoodle clientId
+        clientSecret: "86f03f32a35a7a53b841a1d3bde36beae17157d236e8b1462a83866355b8ab5f", // 👈 JDoodle clientSecret
         script,
         language,
         versionIndex,
